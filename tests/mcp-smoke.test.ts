@@ -14,7 +14,7 @@ test('MCP stdio client connects, lists tools, and calls both safely', { timeout:
   try {
     await client.connect(transport);
     const listed = await client.listTools();
-    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['inspect_share_link', 'preview_exact_text_edit']);
+    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['inspect_share_link', 'preview_exact_text_edit', 'probe_word_online']);
 
     const inspected = await client.callTool({
       name: 'inspect_share_link',
