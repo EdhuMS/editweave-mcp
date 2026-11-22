@@ -14,6 +14,10 @@ A student receives a Microsoft Word Online document with “Anyone with the link
 - Microsoft Graph OAuth adapter: **not implemented**.
 - No authentication bypass, automatic edits, or guarantees of formatting fidelity.
 
+## OpenCode terminal installation
+
+See [step-by-step Windows/OpenCode v2 guide](docs/INSTALL-OPENCODE.md). A project-level `opencode.json` is included so OpenCode can discover the MCP without npm publication or remote hosting.
+
 ## Quick start
 Requires Node.js >= 22.10.
 ```bash
