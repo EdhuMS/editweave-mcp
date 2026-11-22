@@ -53,3 +53,13 @@ After reviewing stage-1 evidence, design and test a guarded, localized edit. Req
 - abort if two collaborators diverge.
 
 Do not use arbitrary keyboard macros against a production document without independent evidence of target selection.
+
+## Observed from real anonymous test (2026-11-22)
+
+The owner ran the improved probe from Windows and reported the following **read-only evidence**:
+- Main SharePoint frame had 0 body text and 0 editable elements.
+- Child frame at an `officeapps.live.com` host had 1,028 visible UI characters and 23 `contenteditable` elements.
+- UI keywords: `Editing` and `Ribbon`.
+- The previous `login_required` result was ambiguous, because the implementation treated *any* text saying `Sign in` as an authentication barrier even if the Word editor frame was present. The classifier now prefers populated editor-frame evidence and also exposes `loginTextDetected` as a separate boolean. This is not a verified absence of authentication for all operations.
+
+**Next mandatory gate before writing:** identify whether the actual document body and the *specific* intended section are available to Playwright; verify exact matching and a safe selection mechanism. A generic `contenteditable` count must never be used to infer that a target paragraph is selectable or writable. Keep the editor on the test fixture only. No write tool exists at this stage.
