@@ -71,3 +71,18 @@ The read-only probe now reports `frames[].markerCounts` for four **fixed, synthe
 After pulling the latest experimental branch, repeat `npm run probe:word` with `EDITWEAVE_TEST_URL`. If `documentMarkersFound=false`, then UI text and `contenteditable` controls still do **not** establish direct paragraph access. Word can render text on a canvas. Further inspection of accessibility tree and the actual editor behavior will be needed before enabling exact writes.
 
 Do not infer permission from `documentMarkersFound=true` alone. The user-provided synthetic test screenshot showed each section includes duplicate `Esto es una prueba...` text; any write must specify and independently verify the **Desarrollo** section, not a global replace.
+
+## Stage 1c: accessibility and rendering diagnostics (no writes)
+
+**Observed on 2026-11-22 from user-run Playwright:** `status=editor_shell_detected`, 2 frames, child Word frame with 1,031 UI characters and 23 `contenteditable` elements. For that frame `markerCounts` was 0 for all four synthetic markers, `editableRoles` showed 18 `div:heading`, 2 `table:none`, 2 `a:none` and 1 `div:none`. This supports the hypothesis that the visible document body does not appear in `body.innerText`, but does not establish how Word represents it.
+
+A new **read-only** diagnosis collects for each Microsoft-owned frame:
+- `renderStructure`: counts for canvas, SVG, document roles and textbox roles
+- `textContentMarkerCounts`: counts from DOM text nodes, excluding script/style/template
+- `ariaMarkerCounts`: counts in ARIA labels and title attributes
+- `accessibilitySnapshotMarkerCounts`: counts in a Playwright accessibility snapshot
+- `markerDetectionMethods`: channels containing all three fixture section headings
+
+All results consist only of fixed marker counts and non-secret structural metadata; no raw document text or sharing URLs are returned. **A matching marker in the accessibility tree or hidden DOM is still NOT proof of a safely selectable paragraph.** Next milestone before write operations is a uniquely targeted document-range selector, approved replacement, conflict check and independent persistence verification.
+
+The new analysis was tested in GitHub Actions https://github.com/EdhuMS/editweave-mcp/actions/runs/45057994257. Live Word behavior of stage 1c remains **not_run** until the owner tests the branch on Windows.
