@@ -17,6 +17,8 @@ export type WordProbe = {
   accessibleEditableElements: number;
   frames: FrameProbe[];
   frameCount: number;
+  loginTextDetected: boolean;
+  editorFrameDetected: boolean;
   elapsedMs: number;
   failureCode?: 'navigation_timeout' | 'navigation_failed' | 'browser_launch_failed' | 'unknown_failure';
   note: string;
@@ -112,6 +114,7 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
     let indicators: string[] = [];
     let login = ['login.microsoftonline.com', 'login.live.com'].includes(finalHost.toLowerCase());
     let denied = false;
+    let editorFrameDetected = false;
     for (const frame of page.frames().slice(0, 40)) {
       let host = '';
       try { host = new URL(frame.url()).hostname; } catch { host = 'internal'; }
@@ -121,6 +124,7 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
       const editable = await frame.locator('[contenteditable="true"]').count().catch(() => 0);
       allTextLength += text.length;
       allEditable += editable;
+      if (host.endsWith('.officeapps.live.com') && (editable > 0 || /\bEditing\b|Edici[oó]n/i.test(text))) editorFrameDetected = true;
       indicators.push(...titleIndicators(text.slice(0, 10000)));
       if (/sign in|iniciar sesi[oó]n|acceder a su cuenta|enter your password/i.test(text.slice(0, 5000))) login = true;
       if (/access denied|you don't have permission|acceso denegado|no tiene permisos/i.test(text.slice(0, 5000))) denied = true;
@@ -132,9 +136,14 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
       });
     }
     indicators = [...new Set(indicators)];
+    // A sign-in prompt inside a working editor often refers to an optional
+    // account action, not an actual authentication gate. Prefer direct shell
+    // evidence over incidental 'Sign in' strings; a login URL remains decisive.
+    const loginHost = ['login.microsoftonline.com', 'login.live.com'].includes(finalHost.toLowerCase());
 
     return {
-      status: login ? 'login_required' : denied ? 'permission_denied'
+      status: loginHost ? 'login_required' : editorFrameDetected ? 'editor_shell_detected'
+        : denied ? 'permission_denied' : login ? 'login_required'
         : indicators.some(x => ['Editing','Edición','Editar'].includes(x)) ? 'editor_shell_detected'
         : allTextLength > 0 || pageTitle ? 'html_loaded'
         : failureCode === 'navigation_timeout' ? 'timeout' : 'unknown',
@@ -142,6 +151,7 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
       exposedTextLength: allTextLength,
       accessibleEditableElements: allEditable,
       frames: frameDetails, frameCount: page.frames().length,
+      loginTextDetected: login, editorFrameDetected,
       elapsedMs: Date.now() - started,
       ...(failureCode ? { failureCode } : {}),
       note: 'Read-only diagnostic. Editor-shell controls and accessible elements are not proof of write access or document-body access. No document was modified.'
@@ -150,7 +160,7 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
     return {
       status: 'unknown', pageTitle, finalHost, editIndicators: [],
       exposedTextLength: 0, accessibleEditableElements: 0, frames: [], frameCount: 0,
-      elapsedMs: Date.now() - started,
+      elapsedMs: Date.now() - started, loginTextDetected: false, editorFrameDetected: false,
       failureCode: browser ? 'unknown_failure' : 'browser_launch_failed',
       note: 'Browser diagnostic failed. Check Playwright installation and network. No document was modified.'
     };
