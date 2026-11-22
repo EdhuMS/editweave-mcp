@@ -63,3 +63,11 @@ The owner ran the improved probe from Windows and reported the following **read-
 - The previous `login_required` result was ambiguous, because the implementation treated *any* text saying `Sign in` as an authentication barrier even if the Word editor frame was present. The classifier now prefers populated editor-frame evidence and also exposes `loginTextDetected` as a separate boolean. This is not a verified absence of authentication for all operations.
 
 **Next mandatory gate before writing:** identify whether the actual document body and the *specific* intended section are available to Playwright; verify exact matching and a safe selection mechanism. A generic `contenteditable` count must never be used to infer that a target paragraph is selectable or writable. Keep the editor on the test fixture only. No write tool exists at this stage.
+
+## Stage 1b: identify document body markers (no writes)
+
+The read-only probe now reports `frames[].markerCounts` for four **fixed, synthetic fixture phrases** and `frames[].editableRoles` as counts of element tag + role. It never returns document body text, field values, accessible labels or the share-link token. `documentMarkersFound` is true only if `Introducción`, `Desarrollo` and `Conclusiones` all appear in the same frame's visible body text.
+
+After pulling the latest experimental branch, repeat `npm run probe:word` with `EDITWEAVE_TEST_URL`. If `documentMarkersFound=false`, then UI text and `contenteditable` controls still do **not** establish direct paragraph access. Word can render text on a canvas. Further inspection of accessibility tree and the actual editor behavior will be needed before enabling exact writes.
+
+Do not infer permission from `documentMarkersFound=true` alone. The user-provided synthetic test screenshot showed each section includes duplicate `Esto es una prueba...` text; any write must specify and independently verify the **Desarrollo** section, not a global replace.
