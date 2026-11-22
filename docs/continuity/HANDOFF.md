@@ -36,3 +36,12 @@ Prepared: **2026-11-22** | Profile: **Professional** | Phase: **v0.1.0-alpha**.
 3. Create synthetic Word Online document with edit sharing specifically for PoC.
 4. Validate guest edit feasibility; document failure or success with evidence.
 5. Update Drive version archive and handoff; consider a release only after full verification.
+
+
+## OpenCode v2 onboarding — 2026-11-22
+- Added project-level `opencode.json` using current OpenCode v2 `mcp.servers.editweave`.
+- Installation guide: [docs/INSTALL-OPENCODE.md](../INSTALL-OPENCODE.md).
+- An end-to-end **MCP stdio SDK client smoke test** was added in `tests/mcp-smoke.test.ts`, exercising initialize, listTools and both read-only preview tools.
+- GitHub Actions **passed** after this change: https://github.com/EdhuMS/editweave-mcp/actions/runs/45054512505. The job ran npm installation, all tests and check on Node 22, Ubuntu.
+- Actual OpenCode invocation on the user's Windows machine is not yet verified; user must run `opencode mcp list` and send the outcome.
+- Word Online reading/writing is still **not implemented**, with no live document accessed or changed.
