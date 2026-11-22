@@ -32,4 +32,18 @@ server.tool('preview_exact_text_edit',
     }
   });
 
+server.tool('probe_word_online',
+  'Open a Microsoft Word Online link in an isolated, headless browser in READ-ONLY mode. This is an experimental diagnostic and cannot confirm document edit rights. No clicks or writes occur.',
+  { url: z.string().max(4096) }, async ({ url }) => {
+    try {
+      const { probeWordOnline } = await import('../adapters/word-online/probe.ts');
+      const probe = await probeWordOnline(url);
+      return { content: [{ type: 'text', text: JSON.stringify(probe) }] };
+    } catch {
+      // Never return raw errors, which could contain a sharing URL token.
+      return { isError: true, content: [{ type: 'text',
+        text: 'Unable to run Word Online probe. Verify URL and Playwright Chromium installation. No document was changed.' }] };
+    }
+  });
+
 await server.connect(new StdioServerTransport());

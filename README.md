@@ -7,6 +7,12 @@
 ## Purpose
 A student receives a Microsoft Word Online document with “Anyone with the link can edit” permissions and wants an AI agent to edit only an assigned section, preserving collaborators' work.
 
+## Word Online live diagnostic (experimental)
+
+A new `probe_word_online` tool opens a shared Word Online URL in disposable headless Chromium **without clicking or writing**. Install Chromium using `npx playwright install chromium` after `npm install`. See [Word Online PoC](docs/WORD-ONLINE-POC.md).
+
+**No Word editing capability exists yet.** The diagnostic cannot prove edit permission or locate text reliably until tested with the actual editor.
+
 ## Status
 - `inspect_share_link`: classifies an allowed Microsoft URL without fetching it or claiming access.
 - `preview_exact_text_edit`: returns a non-executing change plan.
