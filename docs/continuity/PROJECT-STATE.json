@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "project_id": "editweave-mcp",
+  "profile": "professional",
+  "status": "in_progress",
+  "updated_at": "2026-11-22",
+  "canonical_storage": {
+    "code": {
+      "provider": "github",
+      "path": "https://github.com/EdhuMS/editweave-mcp",
+      "branch": "main"
+    },
+    "documents": {
+      "provider": "google-drive",
+      "path": "https://drive.google.com/drive/folders/1tB_EMnTojMeI5iOdbzOLeBCDtXaj6-Ch"
+    }
+  },
+  "repository": {
+    "url": "https://github.com/EdhuMS/editweave-mcp",
+    "branch": "main",
+    "commit": "1fec21c6cd3014f2b1a2d4e9eaf02e7c71a8fd73"
+  },
+  "milestone": {
+    "name": "v0.1.0-alpha foundation",
+    "status": "in_progress"
+  },
+  "evidence": [
+    {
+      "claim": "GitHub repository created and scaffold uploaded",
+      "status": "verified",
+      "source": "https://github.com/EdhuMS/editweave-mcp/commit/1fec21c6cd3014f2b1a2d4e9eaf02e7c71a8fd73"
+    },
+    {
+      "claim": "Microsoft Word guest editing supported for certain public edit links",
+      "status": "verified",
+      "source": "https://support.microsoft.com/en-us/word/share-access-to-a-file-with-no-sign-in-necessary"
+    },
+    {
+      "claim": "AI agent can modify Word Online anonymously through MCP",
+      "status": "unknown",
+      "source": null
+    }
+  ],
+  "test_results": [
+    {
+      "name": "domain tests",
+      "command": "npm test",
+      "environment": "Node 22.16.0 Linux",
+      "result": "passed",
+      "count": 4,
+      "scope": "earlier local candidate; GitHub CI result tracked separately"
+    },
+    {
+      "name": "MCP runtime bootstrap",
+      "result": "not_run",
+      "reason": "dependencies not installed locally"
+    },
+    {
+      "name": "Word Online integration",
+      "result": "not_run"
+    },
+    {
+      "name": "GitHub Actions",
+      "result": "not_run",
+      "reason": "await new workflow execution"
+    }
+  ],
+  "blockers": [
+    "No real Word Online editing adapter or integration PoC",
+    "npm package and MCP Registry name availability not confirmed",
+    "MCP stdio runtime smoke not yet verified"
+  ],
+  "next_action": "Inspect GitHub CI result; install dependencies with network access and run MCP smoke; conduct controlled Word Online synthetic-document PoC before enabling writes.",
+  "verification_status": "partial",
+  "branding": {
+    "current": "EditWeave MCP",
+    "previous": "CollabWord MCP",
+    "decision": "ADR-002",
+    "status": "source-and-repo-adopted; cloud canonical title preserved",
+    "npm_available": "unverified",
+    "mcp_registry_available": "unverified"
+  }
+}
