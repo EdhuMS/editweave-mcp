@@ -29,7 +29,19 @@ npm run probe:word
 Remove-Item Env:EDITWEAVE_TEST_URL
 ```
 
-This calls Playwright headless Chromium and produces a JSON diagnostic. Send only the status, finalHost, pageTitle, editIndicators and accessibleEditableElements to the developer. **Do not share the visibleTextExcerpt if the document contains confidential text.**
+This calls Playwright headless Chromium and produces a redacted JSON diagnostic: frame **hostnames only**, frame counts, DOM text lengths, control indicators and sanitized failure codes. **No Word document body or sharing-link tokens are returned.** Send status, finalHost, pageTitle, editIndicators, accessibleEditableElements, frames, failureCode, and frameCount to the developer.
+
+If the headless run reports only an empty shell, try **visible Chromium** in an attended Windows session:
+
+```powershell
+$env:EDITWEAVE_PROBE_HEADED = "1"
+$env:EDITWEAVE_TEST_URL = Read-Host "Pega el enlace de prueba de Word Online"
+npm run probe:word
+Remove-Item Env:EDITWEAVE_PROBE_HEADED -ErrorAction SilentlyContinue
+Remove-Item Env:EDITWEAVE_TEST_URL -ErrorAction SilentlyContinue
+```
+
+The launched Chromium window is **not** your normal Edge or Chrome profile; it has no existing Microsoft session. Do not type credentials into the automated browser. No screenshots or browser storage are persisted. A title-only page remains an inconclusive result even if your normal browser can edit the document.
 
 ## Stage 2 (not built)
 After reviewing stage-1 evidence, design and test a guarded, localized edit. Requirements:
