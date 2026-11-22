@@ -1,22 +1,28 @@
 import { chromium } from 'playwright';
 import { classifyShareLink } from '../../domain/share-link.ts';
 
-/**
- * Browser-only diagnostic: no keystrokes, no document mutations and no saved
- * browser profile, traces, HARs, screenshots or raw sharing links.
- */
+/** Read-only browser diagnostic. Never returns a sharing URL, frame URL or body text. */
+export type FrameProbe = {
+  host: string;
+  bodyTextLength: number;
+  editableElementCount: number;
+  frameKind: 'main' | 'child';
+};
 export type WordProbe = {
-  status: 'opened' | 'login_required' | 'unknown';
+  status: 'editor_shell_detected' | 'login_required' | 'permission_denied' | 'html_loaded' | 'timeout' | 'unknown';
   pageTitle: string;
   finalHost: string;
   editIndicators: string[];
-  visibleTextExcerpt: string;
   exposedTextLength: number;
   accessibleEditableElements: number;
+  frames: FrameProbe[];
+  frameCount: number;
+  elapsedMs: number;
+  failureCode?: 'navigation_timeout' | 'navigation_failed' | 'browser_launch_failed' | 'unknown_failure';
   note: string;
 };
 
-const microsoftHost = (hostname: string) => {
+export function microsoftHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   return [
     '1drv.ms', 'office.com', 'www.office.com', 'word.cloud.microsoft',
@@ -26,65 +32,129 @@ const microsoftHost = (hostname: string) => {
     '.microsoft.com', '.microsoftonline.com', '.microsoft365.com',
     '.live.com'
   ].some(s => h.endsWith(s) && h.length > s.length);
+}
+
+const titleIndicators = (text: string): string[] => {
+  const patterns = [
+    ['Editing', /\bEditing\b/i],
+    ['Edición', /Edici[oó]n/i],
+    ['Editar', /\bEditar\b/i],
+    ['Compartir', /\bCompartir\b/i],
+    ['Share', /\bShare\b/i],
+    ['Ribbon', /\b(?:Insert|Insertar|Review|Revisar)\b/i]
+  ] as const;
+  return patterns.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
 };
 
-export async function probeWordOnline(input: string, timeoutMs = 35000): Promise<WordProbe> {
-  classifyShareLink(input); // Input must be an approved Microsoft document host.
+export async function probeWordOnline(input: string, timeoutMs = 45000): Promise<WordProbe> {
+  classifyShareLink(input);
   const timeout = Math.max(15000, Math.min(timeoutMs, 60000));
-  const browser = await chromium.launch({ headless: true });
+  const started = Date.now();
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let pageTitle = '';
+  let finalHost = '';
+  let failureCode: WordProbe['failureCode'];
   try {
-    const context = await browser.newContext({
-      acceptDownloads: false, serviceWorkers: 'block'
-    });
+    const headed = process.env.EDITWEAVE_PROBE_HEADED === '1';
+    browser = await chromium.launch({ headless: !headed });
+    const context = await browser.newContext({ acceptDownloads: false });
     const page = await context.newPage();
-    // Only main-frame navigations are constrained; Word loads many cross-origin
-    // assets. Never let a document link redirect the main frame to localhost.
+    // All main-frame navigation is restricted to HTTPS Microsoft-controlled hosts.
     await page.route('**/*', async route => {
-      const req = route.request();
-      if (req.isNavigationRequest() && req.frame() === page.mainFrame()) {
+      const request = route.request();
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
         try {
-          const next = new URL(req.url());
-          if (next.protocol !== 'https:' || !microsoftHost(next.hostname)) {
+          const url = new URL(request.url());
+          if (url.protocol !== 'https:' || !microsoftHost(url.hostname)) {
             await route.abort();
             return;
           }
-        } catch { await route.abort(); return; }
+        } catch {
+          await route.abort();
+          return;
+        }
       }
       await route.continue();
     });
-    await page.goto(input, { waitUntil: 'domcontentloaded', timeout });
-    // Word Online commonly renders after the initial HTML.
-    await page.waitForTimeout(3500);
-    const final = new URL(page.url());
-    const title = (await page.title().catch(() => '')).slice(0, 160);
-    const text = (await page.locator('body').innerText({ timeout: 10000 }).catch(() => '')).slice(0, 25000);
-    const lower = (title + ' ' + text.slice(0, 3000)).toLowerCase();
-    const login = /sign in|iniciar sesi[oó]n|acceder a su cuenta|enter your password/.test(lower) ||
-      ['login.microsoftonline.com', 'login.live.com'].includes(final.hostname.toLowerCase());
-    const indicators = [
-      /\bedit(?:ing)?\b/i.test(text) ? 'Editing' : null,
-      /\beditar\b/i.test(text) ? 'Editar' : null,
-      /\bcompartir\b/i.test(text) ? 'Compartir' : null,
-      /\bshare\b/i.test(text) ? 'Share' : null
-    ].filter((v): v is string => v !== null);
-    const editable = await page.locator('[contenteditable="true"]').count().catch(() => 0);
+
+    try {
+      await page.goto(input, { waitUntil: 'domcontentloaded', timeout });
+    } catch (error) {
+      const message = error instanceof Error ? error.name : '';
+      failureCode = message === 'TimeoutError' ? 'navigation_timeout' : 'navigation_failed';
+    }
+
+    // Wait for the editor shell or a stable list of frames, not a hard-coded 3.5s.
+    // Avoid networkidle, which can remain blocked indefinitely by collaboration polling.
+    const deadline = Date.now() + Math.min(20000, Math.floor(timeout / 2));
+    let lastState = '';
+    let stableCount = 0;
+    while (Date.now() < deadline && !page.isClosed()) {
+      const frames = page.frames();
+      const state = frames.map(f => {
+        try { return new URL(f.url()).hostname; } catch { return ''; }
+      }).join('|');
+      if (state === lastState && frames.length > 1) stableCount++;
+      else stableCount = 0;
+      lastState = state;
+      const shell = await page.getByRole('button', { name: /(?:Editing|Edici[oó]n|Share|Compartir)/i })
+        .first().isVisible().catch(() => false);
+      if (shell || stableCount >= 8) break;
+      await page.waitForTimeout(1000);
+    }
+
+    pageTitle = (await page.title().catch(() => '')).slice(0, 160);
+    try { finalHost = new URL(page.url()).hostname; } catch { finalHost = ''; }
+
+    const frameDetails: FrameProbe[] = [];
+    let allTextLength = 0;
+    let allEditable = 0;
+    let indicators: string[] = [];
+    let login = ['login.microsoftonline.com', 'login.live.com'].includes(finalHost.toLowerCase());
+    let denied = false;
+    for (const frame of page.frames().slice(0, 40)) {
+      let host = '';
+      try { host = new URL(frame.url()).hostname; } catch { host = 'internal'; }
+      // Never inspect unexpected origins in diagnostic results.
+      if (host !== 'internal' && !microsoftHost(host)) continue;
+      const text = await frame.locator('body').innerText({ timeout: 2500 }).catch(() => '');
+      const editable = await frame.locator('[contenteditable="true"]').count().catch(() => 0);
+      allTextLength += text.length;
+      allEditable += editable;
+      indicators.push(...titleIndicators(text.slice(0, 10000)));
+      if (/sign in|iniciar sesi[oó]n|acceder a su cuenta|enter your password/i.test(text.slice(0, 5000))) login = true;
+      if (/access denied|you don't have permission|acceso denegado|no tiene permisos/i.test(text.slice(0, 5000))) denied = true;
+      frameDetails.push({
+        host,
+        bodyTextLength: text.length,
+        editableElementCount: editable,
+        frameKind: frame === page.mainFrame() ? 'main' : 'child'
+      });
+    }
+    indicators = [...new Set(indicators)];
+
     return {
-      status: login ? 'login_required' : text.length ? 'opened' : 'unknown',
-      pageTitle: title,
-      finalHost: final.hostname,
-      editIndicators: indicators,
-      visibleTextExcerpt: text.slice(0, 2500),
-      exposedTextLength: text.length,
-      accessibleEditableElements: editable,
-      note: 'Diagnostic only. The presence of Edit buttons or DOM content does not prove edit permission or access to document body. No content was changed.'
+      status: login ? 'login_required' : denied ? 'permission_denied'
+        : indicators.some(x => ['Editing','Edición','Editar'].includes(x)) ? 'editor_shell_detected'
+        : allTextLength > 0 || pageTitle ? 'html_loaded'
+        : failureCode === 'navigation_timeout' ? 'timeout' : 'unknown',
+      pageTitle, finalHost, editIndicators: indicators,
+      exposedTextLength: allTextLength,
+      accessibleEditableElements: allEditable,
+      frames: frameDetails, frameCount: page.frames().length,
+      elapsedMs: Date.now() - started,
+      ...(failureCode ? { failureCode } : {}),
+      note: 'Read-only diagnostic. Editor-shell controls and accessible elements are not proof of write access or document-body access. No document was modified.'
     };
   } catch {
-    // Do not expose Playwright error details, which may contain the bearer URL.
     return {
-      status: 'unknown', pageTitle: '', finalHost: '',
-      editIndicators: [], visibleTextExcerpt: '', exposedTextLength: 0,
-      accessibleEditableElements: 0,
-      note: 'Browser probe could not complete. Check browser installation, access and Microsoft redirects locally. No content was changed.'
+      status: 'unknown', pageTitle, finalHost, editIndicators: [],
+      exposedTextLength: 0, accessibleEditableElements: 0, frames: [], frameCount: 0,
+      elapsedMs: Date.now() - started,
+      failureCode: browser ? 'unknown_failure' : 'browser_launch_failed',
+      note: 'Browser diagnostic failed. Check Playwright installation and network. No document was modified.'
     };
-  } finally { await browser.close(); }
+  } finally {
+    await browser?.close();
+  }
 }
