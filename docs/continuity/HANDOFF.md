@@ -18,7 +18,7 @@ Prepared: **2026-11-22** | Profile: **Professional** | Phase: **v0.1.0-alpha**.
 
 ## Tests and deployment
 - Local pure-domain tests: passed (prior candidate, 4/4).
-- GitHub CI: **not_run / pending workflow confirmation** as of this handoff snapshot.
+- GitHub CI: **passed** on main, run https://github.com/EdhuMS/editweave-mcp/actions/runs/45053027708 (Node 22, domain tests and check); this does not validate actual Word editing.
 - Full MCP server runtime: not_run, dependencies could not be installed locally.
 - Word Online guest edit, concurrent editing and Graph OAuth: not_run.
 - npm publication, MCP Registry, hosting: not deployed.
