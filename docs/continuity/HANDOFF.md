@@ -45,3 +45,12 @@ Prepared: **2026-11-22** | Profile: **Professional** | Phase: **v0.1.0-alpha**.
 - GitHub Actions **passed** after this change: https://github.com/EdhuMS/editweave-mcp/actions/runs/45054512505. The job ran npm installation, all tests and check on Node 22, Ubuntu.
 - Actual OpenCode invocation on the user's Windows machine is not yet verified; user must run `opencode mcp list` and send the outcome.
 - Word Online reading/writing is still **not implemented**, with no live document accessed or changed.
+
+
+## Stage v0.2-alpha — Word Online guest probe (2026-11-22)
+- Isolated branch: `feat/word-online-guest-probe`, commit `45a21cf7225eb3598cd6ee11da4f30a1673e77fd`.
+- New experimental `probe_word_online` MCP tool and `npm run probe:word` local CLI using Playwright Chromium, no clicks or writes.
+- **CI passed**: https://github.com/EdhuMS/editweave-mcp/actions/runs/45055849321, including dependency audit and 7 automated tests.
+- Real Microsoft Word guest browser access **not_run**: user must run local probe with synthetic shared test document, redact output and share only status, title, host, indicators and editable count.
+- Real document editing **not_implemented**. Never describe URL recognition or UI chrome as verified editable content.
+- No Word share URL was written into the repository or Drive; earlier project backups remain intact.
