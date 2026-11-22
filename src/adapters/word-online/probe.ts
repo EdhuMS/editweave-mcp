@@ -9,6 +9,15 @@ export type FrameProbe = {
   frameKind: 'main' | 'child';
   markerCounts: Record<'introduccion' | 'desarrollo' | 'conclusiones' | 'textoPrueba', number>;
   editableRoles: Record<string, number>;
+  renderStructure: {
+    canvases: number;
+    svgElements: number;
+    documentRoles: number;
+    textboxRoles: number;
+  };
+  textContentMarkerCounts: Record<'introduccion' | 'desarrollo' | 'conclusiones' | 'textoPrueba', number>;
+  ariaMarkerCounts: Record<'introduccion' | 'desarrollo' | 'conclusiones' | 'textoPrueba', number>;
+  accessibilitySnapshotMarkerCounts: Record<'introduccion' | 'desarrollo' | 'conclusiones' | 'textoPrueba', number>;
 };
 export type WordProbe = {
   status: 'editor_shell_detected' | 'login_required' | 'permission_denied' | 'html_loaded' | 'timeout' | 'unknown';
@@ -22,6 +31,7 @@ export type WordProbe = {
   loginTextDetected: boolean;
   editorFrameDetected: boolean;
   documentMarkersFound: boolean;
+  markerDetectionMethods: string[];
   elapsedMs: number;
   failureCode?: 'navigation_timeout' | 'navigation_failed' | 'browser_launch_failed' | 'unknown_failure';
   note: string;
@@ -38,6 +48,22 @@ export function microsoftHost(hostname: string): boolean {
     '.live.com'
   ].some(s => h.endsWith(s) && h.length > s.length);
 }
+
+type MarkerCounts = FrameProbe['markerCounts'];
+
+export function countFixtureMarkers(value: string): MarkerCounts {
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const count = (term: string) => normalized.split(term).length - 1;
+  return {
+    introduccion: count('introduccion'),
+    desarrollo: count('desarrollo'),
+    conclusiones: count('conclusiones'),
+    textoPrueba: count('esto es una prueba')
+  };
+}
+
+const hasThreeSections = (counts: MarkerCounts): boolean =>
+  counts.introduccion > 0 && counts.desarrollo > 0 && counts.conclusiones > 0;
 
 const titleIndicators = (text: string): string[] => {
   const patterns = [
@@ -125,19 +151,47 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
       if (host !== 'internal' && !microsoftHost(host)) continue;
       const text = await frame.locator('body').innerText({ timeout: 2500 }).catch(() => '');
       const editable = await frame.locator('[contenteditable="true"]').count().catch(() => 0);
-      // Inspect only generic structure; never return document text or credential-bearing URLs.
-      const markerCounts = await frame.evaluate(() => {
+      // Never return document text, aria labels, or sharing URLs.
+      // These fixed fixture markers are only diagnostics, not safe write selectors.
+      const markerCounts = countFixtureMarkers(text);
+      const structural = await frame.evaluate(() => {
         const body = document.body;
-        if (!body) return { introduccion: 0, desarrollo: 0, conclusiones: 0, textoPrueba: 0 };
-        const text = body.innerText.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
-        const count = (needle: string) => text.split(needle).length - 1;
+        const empty = { textContent: '', ariaLabels: '', canvases: 0, svgElements: 0,
+          documentRoles: 0, textboxRoles: 0 };
+        if (!body) return empty;
+        // TextContent may include invisible UI strings or application templates.
+        const textNodes: string[] = [];
+        const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        let current: Node | null;
+        let count = 0;
+        while ((current = walker.nextNode()) && count < 10000) {
+          const parent = current.parentElement;
+          if (!parent || parent.closest('script,style,noscript,template')) continue;
+          textNodes.push(current.textContent || '');
+          count++;
+        }
+        const ariaLabels = Array.from(body.querySelectorAll('[aria-label], [title]'))
+          .slice(0, 5000)
+          .map(el => (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || ''))
+          .join(' ');
         return {
-          introduccion: count('introduccion'),
-          desarrollo: count('desarrollo'),
-          conclusiones: count('conclusiones'),
-          textoPrueba: count('esto es una prueba')
+          textContent: textNodes.join(' ').slice(0, 150000),
+          ariaLabels: ariaLabels.slice(0, 150000),
+          canvases: body.querySelectorAll('canvas').length,
+          svgElements: body.querySelectorAll('svg').length,
+          documentRoles: body.querySelectorAll('[role="document"]').length,
+          textboxRoles: body.querySelectorAll('[role="textbox"]').length
         };
-      }).catch(() => ({ introduccion: 0, desarrollo: 0, conclusiones: 0, textoPrueba: 0 }));
+      }).catch(() => ({
+        textContent: '', ariaLabels: '', canvases: 0, svgElements: 0,
+        documentRoles: 0, textboxRoles: 0
+      }));
+      const textContentMarkerCounts = countFixtureMarkers(structural.textContent);
+      const ariaMarkerCounts = countFixtureMarkers(structural.ariaLabels);
+      // Accessibility snapshots can expose text that is absent from innerText;
+      // inspect locally and return only counts of known synthetic phrases.
+      const snapshot = await frame.locator('body').ariaSnapshot({ timeout: 3000 }).catch(() => '');
+      const accessibilitySnapshotMarkerCounts = countFixtureMarkers(snapshot);
       const editableRoles = await frame.locator('[contenteditable="true"]').evaluateAll(elements => {
         const roles: Record<string, number> = {};
         for (const el of elements) {
@@ -160,7 +214,12 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
         editableElementCount: editable,
         frameKind: frame === page.mainFrame() ? 'main' : 'child',
         markerCounts,
-        editableRoles
+        editableRoles,
+        renderStructure: {
+          canvases: structural.canvases, svgElements: structural.svgElements,
+          documentRoles: structural.documentRoles, textboxRoles: structural.textboxRoles
+        },
+        textContentMarkerCounts, ariaMarkerCounts, accessibilitySnapshotMarkerCounts
       });
     }
     indicators = [...new Set(indicators)];
@@ -181,7 +240,14 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
       frames: frameDetails, frameCount: page.frames().length,
       loginTextDetected: login, editorFrameDetected,
       documentMarkersFound: frameDetails.some(f =>
-        f.markerCounts.introduccion > 0 && f.markerCounts.desarrollo > 0 && f.markerCounts.conclusiones > 0),
+        [f.markerCounts, f.textContentMarkerCounts, f.ariaMarkerCounts,
+          f.accessibilitySnapshotMarkerCounts].some(hasThreeSections)),
+      markerDetectionMethods: [
+        ...(frameDetails.some(f => hasThreeSections(f.markerCounts)) ? ['innerText'] : []),
+        ...(frameDetails.some(f => hasThreeSections(f.textContentMarkerCounts)) ? ['textNodes'] : []),
+        ...(frameDetails.some(f => hasThreeSections(f.ariaMarkerCounts)) ? ['ariaLabels'] : []),
+        ...(frameDetails.some(f => hasThreeSections(f.accessibilitySnapshotMarkerCounts)) ? ['accessibilitySnapshot'] : [])
+      ],
       elapsedMs: Date.now() - started,
       ...(failureCode ? { failureCode } : {}),
       note: 'Read-only diagnostic. Editor-shell controls and accessible elements are not proof of write access or document-body access. No document was modified.'
@@ -190,7 +256,7 @@ export async function probeWordOnline(input: string, timeoutMs = 45000): Promise
     return {
       status: 'unknown', pageTitle, finalHost, editIndicators: [],
       exposedTextLength: 0, accessibleEditableElements: 0, frames: [], frameCount: 0,
-      elapsedMs: Date.now() - started, loginTextDetected: false, editorFrameDetected: false, documentMarkersFound: false,
+      elapsedMs: Date.now() - started, loginTextDetected: false, editorFrameDetected: false, documentMarkersFound: false, markerDetectionMethods: [],
       failureCode: browser ? 'unknown_failure' : 'browser_launch_failed',
       note: 'Browser diagnostic failed. Check Playwright installation and network. No document was modified.'
     };
